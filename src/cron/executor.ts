@@ -129,7 +129,10 @@ export async function executeCronJob(
   const modelProvider = job.payload.modelProvider ?? (getSetting('provider', 'openai') as string);
 
   // 4. Build query
-  let query = `[CRON JOB: ${job.name}]\n\n${job.payload.message}`;
+  // Sanitize job name to prevent prompt injection
+  const sanitizedName = job.name.replace(/[^\w\s-]/g, '').slice(0, 50);
+  const sanitizedMessage = job.payload.message.slice(0, 10000); // Limit message length
+  let query = `[CRON JOB: ${sanitizedName}]\n\n${sanitizedMessage}`;
   if (job.fulfillment === 'ask') {
     query += '\n\nIf you find something noteworthy, also ask the user if they want to continue monitoring this.';
   }

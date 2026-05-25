@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises';
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, chmodSync, rmSync, mkdtempSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
@@ -178,8 +178,10 @@ function decryptDatabaseFile(path: string): string {
   const payload = buf.slice(header.length).toString('utf8');
   const encrypted = Buffer.from(payload, 'hex');
   const plaintext = decryptBuffer(encrypted, key);
-  const tempPath = join(tmpdir(), `dexter-db-${randomBytes(8).toString('hex')}.sqlite`);
+  const tempDir = mkdtempSync(join(tmpdir(), 'dexter-'));
+  const tempPath = join(tempDir, 'db.sqlite');
   writeFileSync(tempPath, plaintext);
+  chmodSync(tempPath, 0o600);
   return tempPath;
 }
 
@@ -189,7 +191,7 @@ function decryptDatabaseFile(path: string): string {
 
 export class MemoryDatabase {
   private originalPath: string;
-  private tempPath: string | null = null;
+  private tempDir: string | null = null;
 
   private constructor(private readonly db: SqliteDatabase) {
     this.originalPath = '';
@@ -209,7 +211,7 @@ export class MemoryDatabase {
     const db = await MemoryDatabase.openSqlite(dbPath);
     const memoryDb = new MemoryDatabase(db);
     memoryDb.originalPath = path;
-    memoryDb.tempPath = usedTemp ? dbPath : null;
+    memoryDb.tempDir = usedTemp ? dirname(dbPath) : null;
     memoryDb.db.exec(CREATE_SCHEMA_SQL);
     memoryDb.runMigrations();
     return memoryDb;
@@ -228,12 +230,6 @@ export class MemoryDatabase {
       const sqlite = await import('bun:sqlite');
       const DatabaseCtor = sqlite.Database as new (dbPath: string) => SqliteDatabase;
       const db = new DatabaseCtor(path);
-      try {
-        const escapedKey = getEncryptionKey().replaceAll("'", "''");
-        db.exec(`PRAGMA key = '${escapedKey}'`);
-      } catch {
-        // SQLCipher not available; rely on file-level encryption
-      }
       return db;
     } catch {
       return MemoryDatabase.openBetterSqlite3(path);
@@ -244,12 +240,6 @@ export class MemoryDatabase {
     const mod = await import('better-sqlite3');
     const Database = mod.default;
     const raw = new Database(path);
-    try {
-      const escapedKey = getEncryptionKey().replaceAll('"', '""');
-      raw.pragma(`key = "${escapedKey}"`);
-    } catch {
-      // SQLCipher not available; rely on file-level encryption
-    }
 
     return {
       exec: (sql: string) => raw.exec(sql),
@@ -267,9 +257,10 @@ export class MemoryDatabase {
 
   close(): void {
     this.db.close();
-    if (this.tempPath) {
-      encryptDatabaseFile(this.tempPath, this.originalPath);
-      unlinkSync(this.tempPath);
+    if (this.tempDir) {
+      const tempPath = join(this.tempDir, 'db.sqlite');
+      encryptDatabaseFile(tempPath, this.originalPath);
+      rmSync(this.tempDir, { recursive: true, force: true });
     } else {
       encryptDatabaseFile(this.originalPath, this.originalPath);
     }

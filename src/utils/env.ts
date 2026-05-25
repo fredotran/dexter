@@ -3,6 +3,7 @@ import { config } from 'dotenv';
 import { getProviderById } from '@/providers';
 import { encryptValue, decryptValue, getEncryptionKey } from './encryption.js';
 import { saveToKeychain, getFromKeychain, deleteFromKeychain } from './keychain.js';
+import { logger } from './logger.js';
 
 // Load .env on module import
 config({ quiet: true });
@@ -182,8 +183,8 @@ export async function saveApiKeyForSearchProvider(providerId: SearchProviderId, 
 export function removeApiKeyFromEnv(apiKeyName: string): boolean {
   try {
     // Delete from keychain (best-effort, fire-and-forget)
-    deleteFromKeychain('dexter', apiKeyName).catch(() => {
-      // Ignore keychain deletion errors
+    deleteFromKeychain('dexter', apiKeyName).catch((err) => {
+      logger.error(`Failed to delete ${apiKeyName} from keychain: ${err}`);
     });
 
     if (!existsSync('.env')) {

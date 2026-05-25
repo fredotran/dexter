@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 interface LogEntry {
@@ -21,7 +23,7 @@ class DebugLogger {
 
   private add(level: LogLevel, message: string, data?: unknown) {
     const entry: LogEntry = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      id: `${Date.now()}-${randomBytes(4).toString('hex')}`,
       level,
       message,
       timestamp: new Date(),

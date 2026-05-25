@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { dexterPath } from '../utils/paths.js';
 import type { CronStore } from './types.js';
@@ -39,6 +39,7 @@ export function saveCronStore(store: CronStore): void {
 
   try {
     writeFileSync(tmp, data, 'utf-8');
+    chmodSync(tmp, 0o600);  // Add this line
     renameSync(tmp, CRON_STORE_PATH);
   } catch (err) {
     // Clean up temp file on failure

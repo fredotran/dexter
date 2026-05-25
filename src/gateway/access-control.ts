@@ -57,7 +57,7 @@ function savePairingStore(store: PairingStore): void {
 }
 
 export function createPairingCode(): string {
-  return randomBytes(6).toString('base64url').slice(0, 8).toUpperCase();
+  return randomBytes(12).toString('base64url').slice(0, 8).toUpperCase();
 }
 
 function isPairingCodeExpired(createdAt: number): boolean {

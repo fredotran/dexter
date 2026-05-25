@@ -67,13 +67,11 @@ export async function loginWhatsApp(params: { authDir: string }): Promise<LoginR
         console.log('WhatsApp linked successfully after restart.');
         return { phone };
       } finally {
-        setTimeout(() => {
-          try {
-            retry.ws.close();
-          } catch {
-            // ignore
-          }
-        }, 500);
+        try {
+          retry.ws.close();
+        } catch {
+          // ignore
+        }
       }
     }
 
@@ -82,13 +80,11 @@ export async function loginWhatsApp(params: { authDir: string }): Promise<LoginR
     console.error(`WhatsApp connection failed: ${formatted}`);
     throw new Error(formatted, { cause: err });
   } finally {
-    setTimeout(() => {
-      try {
-        sock.ws.close();
-      } catch {
-        // ignore
-      }
-    }, 500);
+    try {
+      sock.ws.close();
+    } catch {
+      // ignore
+    }
   }
 }
 

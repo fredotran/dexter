@@ -6,9 +6,12 @@ import { logger } from '@/utils';
 
 let browser: Browser | null = null;
 let page: Page | null = null;
+let lastUsed: number = 0;
 
 // Store refs from the last snapshot for action resolution
 let currentRefs: Map<string, { role: string; name?: string; nth?: number }> = new Map();
+
+const BROWSER_IDLE_TIMEOUT_MS = 300000; // 5 minutes
 
 // Type for Playwright's _snapshotForAI result
 interface SnapshotForAIResult {
@@ -189,6 +192,9 @@ function isUrlAllowed(url: string): boolean {
  * Lazily launches a headless Chromium browser on first use.
  */
 async function ensureBrowser(): Promise<Page> {
+  // Check for idle timeout before reusing browser
+  checkBrowserIdle();
+
   if (!browser) {
     browser = await chromium.launch({
       headless: false,
@@ -207,7 +213,25 @@ async function ensureBrowser(): Promise<Page> {
     });
     page = await context.newPage();
   }
+  lastUsed = Date.now();
   return page;
+}
+
+/**
+ * Check if browser has been idle for too long and close it.
+ */
+function checkBrowserIdle(): void {
+  if (browser && lastUsed > 0) {
+    const idleTime = Date.now() - lastUsed;
+    if (idleTime > BROWSER_IDLE_TIMEOUT_MS) {
+      // Close the browser synchronously to avoid async issues
+      browser.close().catch(() => {});
+      browser = null;
+      page = null;
+      currentRefs.clear();
+      lastUsed = 0;
+    }
+  }
 }
 
 /**
@@ -219,6 +243,7 @@ async function closeBrowser(): Promise<void> {
     browser = null;
     page = null;
     currentRefs.clear();
+    lastUsed = 0;
   }
 }
 

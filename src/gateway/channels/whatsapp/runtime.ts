@@ -109,7 +109,9 @@ export async function monitorWhatsAppChannel(params: {
       }
       reconnectAttempts += 1;
       const message = error instanceof Error ? error.message : String(error);
-      params.onStatus?.({ connected: false, lastError: message });
+      // Remove potential sensitive info from error before exposing
+      const sanitizedMessage = message.replace(/[\r\n]/g, ' ').slice(0, 200);
+      params.onStatus?.({ connected: false, lastError: sanitizedMessage });
       const delayMs = computeBackoff(reconnectPolicy, reconnectAttempts);
       if (reconnectPolicy.maxAttempts > 0 && reconnectAttempts >= reconnectPolicy.maxAttempts) {
         break;
