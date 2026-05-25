@@ -7,6 +7,7 @@ Dexter is an autonomous financial research agent that thinks, plans, and learns 
 ## Table of Contents
 
 - [👋 Overview](#-overview)
+- [🔒 Security](#-security)
 - [✅ Prerequisites](#-prerequisites)
 - [💻 How to Install](#-how-to-install)
 - [🚀 How to Run](#-how-to-run)
@@ -28,6 +29,47 @@ This project is for **educational, entertainment, and informational purposes onl
 - Past performance does not indicate future results
 
 By using this software, you agree to use it solely for learning and informational purposes and accept all risks associated with its use.
+
+## 🔒 Security
+
+This fork includes comprehensive security hardening beyond the original Dexter codebase:
+
+### Security Improvements
+
+- **Strong Encryption Requirements**: Removed weak encryption key fallback; now requires explicit `DEXTER_ENCRYPTION_KEY` (32+ characters) for all encrypted data operations
+- **Timing-Safe Comparisons**: Implemented constant-time string comparisons for sensitive operations (phone numbers, allowlists) to prevent timing attacks
+- **Comprehensive Error Handling**: Added try-catch blocks around all JSON parsing operations to prevent crashes from malformed data
+- **Input Validation**: Strengthened keychain validation with stricter regex patterns (length limits, character whitelist) to prevent command injection
+- **Tool Argument Validation**: Added explicit schema validation before tool invocation to ensure type safety
+- **Bounds Checking**: Added length checks before string slicing operations on encrypted data
+- **Path Traversal Prevention**: Enforced relative-only paths in filesystem tools to prevent sandbox escape
+- **ReDoS Prevention**: Simplified regex patterns with bounded quantifiers to prevent regular expression denial of service
+- **Integer Overflow Protection**: Added bounds checking in rate limiter calculations
+
+### Security Best Practices
+
+When running this fork, ensure you:
+
+1. **Set a strong encryption key** (required):
+   ```bash
+   export DEXTER_ENCRYPTION_KEY="your-32-character-encryption-key-here"
+   ```
+
+2. **Keep API keys secure** - Use environment variables or the built-in keychain integration
+3. **Review security logs** - Check `.dexter/security-audit.log` for security events
+4. **Use allowlists** - Configure phone number allowlists for WhatsApp gateway access control
+5. **Regular updates** - Keep dependencies updated for security patches
+
+### Security Audits
+
+This codebase has undergone comprehensive security vulnerability assessments addressing:
+- Timing attack vulnerabilities
+- Command injection risks
+- Path traversal attacks
+- Regular expression denial of service (ReDoS)
+- Integer overflow vulnerabilities
+- Input validation gaps
+- Error handling improvements
 
 ## 👋 Overview
 
@@ -105,6 +147,9 @@ cp env.example .env
 # Web Search (Exa preferred, Tavily fallback)
 # EXASEARCH_API_KEY=your-exa-api-key
 # TAVILY_API_KEY=your-tavily-api-key
+
+# REQUIRED: Encryption key for sensitive data (32+ characters)
+# DEXTER_ENCRYPTION_KEY=your-32-character-encryption-key-here
 ```
 
 ## 🚀 How to Run
