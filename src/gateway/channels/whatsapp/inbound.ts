@@ -12,6 +12,7 @@ import { setActiveWebListener } from './outbound.js';
 import { isRecentInboundMessage } from './dedupe.js';
 import { readSelfId } from './auth-store.js';
 import { checkInboundAccessControl } from '../../access-control.js';
+import { logSecurityEvent } from '../../security-log.js';
 import { resolveJidToPhoneJid, type LidLookup } from './lid.js';
 import { appendFileSync } from 'node:fs';
 import { dexterPath } from '../../../utils/paths.js';
@@ -217,6 +218,13 @@ export async function monitorWebInbox(params: {
         `[inbound] access allowed=${access.allowed} denyReason=${access.denyReason ?? 'none'} isSelfChat=${access.isSelfChat} shouldMarkRead=${access.shouldMarkRead}`,
       );
       if (!access.allowed) {
+        logSecurityEvent({
+          type: 'access_denied',
+          senderId: from,
+          accountId: params.accountId,
+          details: `Access denied: ${access.denyReason ?? 'unknown'}`,
+          severity: 'warn',
+        });
         continue;
       }
 

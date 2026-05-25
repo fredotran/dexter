@@ -19,10 +19,9 @@ describe('access control', () => {
     process.env.DEXTER_PAIRING_PATH = path;
     try {
       const pairing = recordPairingRequest('+15550001111');
-      expect(pairing.code.length).toBe(6);
-      const saved = JSON.parse(readFileSync(path, 'utf8')) as Record<string, { code: string }>;
-      expect(saved['+15550001111']).toBeDefined();
-      expect(saved['+15550001111'].code).toBe(pairing.code);
+      expect(pairing.code.length).toBe(8);
+      const raw = readFileSync(path, 'utf8');
+      expect(raw.startsWith('encrypted:')).toBe(true);
     } finally {
       delete process.env.DEXTER_PAIRING_PATH;
       rmSync(dir, { recursive: true, force: true });

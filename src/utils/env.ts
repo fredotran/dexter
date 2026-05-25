@@ -1,9 +1,13 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, chmodSync } from 'fs';
 import { config } from 'dotenv';
 import { getProviderById } from '@/providers';
+import { encryptValue, decryptValue, getEncryptionKey } from './encryption.js';
+import { saveToKeychain, getFromKeychain, deleteFromKeychain } from './keychain.js';
 
 // Load .env on module import
 config({ quiet: true });
+
+const KEYCHAIN_MARKER = 'keychain://';
 
 export function getApiKeyNameForProvider(providerId: string): string | undefined {
   return getProviderById(providerId)?.apiKeyEnvVar;
@@ -13,14 +17,36 @@ export function getProviderDisplayName(providerId: string): string {
   return getProviderById(providerId)?.displayName ?? providerId;
 }
 
-export function checkApiKeyExistsForProvider(providerId: string): boolean {
+export async function checkApiKeyExistsForProvider(providerId: string): Promise<boolean> {
   const apiKeyName = getApiKeyNameForProvider(providerId);
   if (!apiKeyName) return true;
   return checkApiKeyExists(apiKeyName);
 }
 
-export function checkApiKeyExists(apiKeyName: string): boolean {
-  const value = process.env[apiKeyName];
+function maybeDecryptValue(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('encrypted:')) {
+    try {
+      const encrypted = trimmed.slice('encrypted:'.length);
+      return decryptValue(encrypted, getEncryptionKey());
+    } catch {
+      return undefined;
+    }
+  }
+  return trimmed;
+}
+
+export async function checkApiKeyExists(apiKeyName: string): Promise<boolean> {
+  const rawValue = process.env[apiKeyName];
+
+  // Check for keychain marker in env
+  if (rawValue?.trim() === KEYCHAIN_MARKER) {
+    const keychainValue = await getFromKeychain('dexter', apiKeyName);
+    return keychainValue !== null && keychainValue.trim().length > 0;
+  }
+
+  const value = maybeDecryptValue(rawValue);
   if (value && value.trim() && !value.trim().startsWith('your-')) {
     return true;
   }
@@ -34,7 +60,12 @@ export function checkApiKeyExists(apiKeyName: string): boolean {
       if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
         const [key, ...valueParts] = trimmed.split('=');
         if (key.trim() === apiKeyName) {
-          const val = valueParts.join('=').trim();
+          const valStr = valueParts.join('=').trim();
+          if (valStr === KEYCHAIN_MARKER) {
+            const keychainValue = await getFromKeychain('dexter', apiKeyName);
+            return keychainValue !== null && keychainValue.trim().length > 0;
+          }
+          const val = maybeDecryptValue(valStr);
           if (val && !val.startsWith('your-')) {
             return true;
           }
@@ -46,7 +77,7 @@ export function checkApiKeyExists(apiKeyName: string): boolean {
   return false;
 }
 
-export function saveApiKeyToEnv(apiKeyName: string, apiKeyValue: string): boolean {
+function writeEnvValue(apiKeyName: string, value: string): boolean {
   try {
     let lines: string[] = [];
     let keyUpdated = false;
@@ -62,7 +93,7 @@ export function saveApiKeyToEnv(apiKeyName: string, apiKeyValue: string): boolea
         } else if (stripped.includes('=')) {
           const key = stripped.split('=')[0].trim();
           if (key === apiKeyName) {
-            lines.push(`${apiKeyName}=${apiKeyValue}`);
+            lines.push(`${apiKeyName}=${value}`);
             keyUpdated = true;
           } else {
             lines.push(line);
@@ -73,17 +104,18 @@ export function saveApiKeyToEnv(apiKeyName: string, apiKeyValue: string): boolea
       }
 
       if (!keyUpdated) {
-        if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
+        if (lines.length > 0 && lines[lines.length - 1] !== '') {
           lines.push('');
         }
-        lines.push(`${apiKeyName}=${apiKeyValue}`);
+        lines.push(`${apiKeyName}=${value}`);
       }
     } else {
       lines.push('# LLM API Keys');
-      lines.push(`${apiKeyName}=${apiKeyValue}`);
+      lines.push(`${apiKeyName}=${value}`);
     }
 
     writeFileSync('.env', lines.join('\n'));
+    chmodSync('.env', 0o600);
 
     // Reload environment variables
     config({ override: true, quiet: true });
@@ -94,7 +126,29 @@ export function saveApiKeyToEnv(apiKeyName: string, apiKeyValue: string): boolea
   }
 }
 
-export function saveApiKeyForProvider(providerId: string, apiKey: string): boolean {
+export async function saveApiKeyToEnv(
+  apiKeyName: string,
+  apiKeyValue: string,
+  tryKeychainFirst: boolean = true
+): Promise<boolean> {
+  try {
+    // Try keychain first if enabled
+    if (tryKeychainFirst) {
+      const keychainSaved = await saveToKeychain('dexter', apiKeyName, apiKeyValue);
+      if (keychainSaved) {
+        // Write keychain marker to .env so we know it's stored in keychain
+        return writeEnvValue(apiKeyName, KEYCHAIN_MARKER);
+      }
+    }
+
+    const encryptedValue = `encrypted:${encryptValue(apiKeyValue, getEncryptionKey())}`;
+    return writeEnvValue(apiKeyName, encryptedValue);
+  } catch {
+    return false;
+  }
+}
+
+export async function saveApiKeyForProvider(providerId: string, apiKey: string): Promise<boolean> {
   const apiKeyName = getApiKeyNameForProvider(providerId);
   if (!apiKeyName) return false;
   return saveApiKeyToEnv(apiKeyName, apiKey);
@@ -117,10 +171,50 @@ export function getApiKeyNameForSearchProvider(providerId: SearchProviderId): st
   return SEARCH_PROVIDERS[providerId].apiKeyEnvVar;
 }
 
-export function checkApiKeyForSearchProvider(providerId: SearchProviderId): boolean {
+export async function checkApiKeyForSearchProvider(providerId: SearchProviderId): Promise<boolean> {
   return checkApiKeyExists(SEARCH_PROVIDERS[providerId].apiKeyEnvVar);
 }
 
-export function saveApiKeyForSearchProvider(providerId: SearchProviderId, apiKey: string): boolean {
+export async function saveApiKeyForSearchProvider(providerId: SearchProviderId, apiKey: string): Promise<boolean> {
   return saveApiKeyToEnv(SEARCH_PROVIDERS[providerId].apiKeyEnvVar, apiKey);
+}
+
+export function removeApiKeyFromEnv(apiKeyName: string): boolean {
+  try {
+    // Delete from keychain (best-effort, fire-and-forget)
+    deleteFromKeychain('dexter', apiKeyName).catch(() => {
+      // Ignore keychain deletion errors
+    });
+
+    if (!existsSync('.env')) {
+      return false;
+    }
+
+    const existingContent = readFileSync('.env', 'utf-8');
+    const existingLines = existingContent.split('\n');
+    const newLines: string[] = [];
+    let keyRemoved = false;
+
+    for (const line of existingLines) {
+      const stripped = line.trim();
+      if (stripped && !stripped.startsWith('#') && stripped.includes('=')) {
+        const key = stripped.split('=')[0].trim();
+        if (key === apiKeyName) {
+          keyRemoved = true;
+          continue;
+        }
+      }
+      newLines.push(line);
+    }
+
+    if (keyRemoved) {
+      writeFileSync('.env', newLines.join('\n'));
+      chmodSync('.env', 0o600);
+      config({ override: true, quiet: true });
+    }
+
+    return keyRemoved;
+  } catch {
+    return false;
+  }
 }

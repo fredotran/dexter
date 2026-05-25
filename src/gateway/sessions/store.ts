@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { dexterPath } from '../../utils/paths.js';
+import { encryptValue, decryptValue, getEncryptionKey } from '../../utils/encryption.js';
 
 export type SessionEntry = {
   sessionKey: string;
@@ -24,7 +25,12 @@ export function loadSessionStore(path: string): SessionStore {
     return {};
   }
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as SessionStore;
+    const content = readFileSync(path, 'utf8');
+    if (content.startsWith('encrypted:')) {
+      const decrypted = decryptValue(content.slice(10), getEncryptionKey());
+      return JSON.parse(decrypted) as SessionStore;
+    }
+    return JSON.parse(content) as SessionStore;
   } catch {
     return {};
   }
@@ -35,7 +41,9 @@ export function saveSessionStore(path: string, store: SessionStore): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  writeFileSync(path, JSON.stringify(store, null, 2), 'utf8');
+  const encrypted = encryptValue(JSON.stringify(store), getEncryptionKey());
+  writeFileSync(path, 'encrypted:' + encrypted, 'utf8');
+  chmodSync(path, 0o600);
 }
 
 export function upsertSessionMeta(params: {

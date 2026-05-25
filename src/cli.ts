@@ -581,7 +581,7 @@ export async function runCli() {
       const selector = createModelSelector(
         state.pendingModels,
         modelSelection.provider === state.pendingProvider ? modelSelection.model : undefined,
-        (modelId) => modelSelection.handleModelSelect(modelId),
+        (modelId) => void modelSelection.handleModelSelect(modelId),
         state.pendingProvider,
       );
       showScreenView(
@@ -596,8 +596,8 @@ export async function runCli() {
 
     if (state.appState === 'model_input' && state.pendingProvider) {
       const input = new ApiKeyInputComponent();
-      input.onSubmit = (value) => modelSelection.handleModelInputSubmit(value);
-      input.onCancel = () => modelSelection.handleModelInputSubmit(null);
+      input.onSubmit = (value) => void modelSelection.handleModelInputSubmit(value);
+      input.onCancel = () => void modelSelection.handleModelInputSubmit(null);
       showScreenView(
         `Enter model name for ${getProviderDisplayName(state.pendingProvider)}`,
         'Type or paste the model name from openrouter.ai/models',
@@ -610,7 +610,7 @@ export async function runCli() {
 
     if (state.appState === 'api_key_confirm' && state.pendingProvider) {
       const selector = createApiKeyConfirmSelector((wantsToSet) =>
-        modelSelection.handleApiKeyConfirm(wantsToSet),
+        void modelSelection.handleApiKeyConfirm(wantsToSet),
       );
       showScreenView(
         'Set API Key',
@@ -624,8 +624,8 @@ export async function runCli() {
 
     if (state.appState === 'api_key_input' && state.pendingProvider) {
       const input = new ApiKeyInputComponent(true);
-      input.onSubmit = (apiKey) => modelSelection.handleApiKeySubmit(apiKey);
-      input.onCancel = () => modelSelection.handleApiKeySubmit(null);
+      input.onSubmit = (apiKey) => void modelSelection.handleApiKeySubmit(apiKey);
+      input.onCancel = () => void modelSelection.handleApiKeySubmit(null);
       const apiKeyName = getApiKeyNameForProvider(state.pendingProvider) ?? '';
       showScreenView(
         `Enter ${getProviderDisplayName(state.pendingProvider)} API Key`,
@@ -640,7 +640,7 @@ export async function runCli() {
     if (searchState.appState === 'provider_select') {
       const selector = createSearchProviderSelector(
         searchState.preferredProvider,
-        (providerId) => searchSelection.handleProviderSelect(providerId),
+        (providerId) => void searchSelection.handleProviderSelect(providerId),
         () => searchSelection.cancelSelection(),
       );
       showScreenView(
@@ -655,7 +655,7 @@ export async function runCli() {
 
     if (searchState.appState === 'api_key_confirm' && searchState.pendingProvider) {
       const selector = createApiKeyConfirmSelector((wantsToSet) =>
-        searchSelection.handleApiKeyConfirm(wantsToSet),
+        void searchSelection.handleApiKeyConfirm(wantsToSet),
       );
       showScreenView(
         'Set API Key',
@@ -669,8 +669,8 @@ export async function runCli() {
 
     if (searchState.appState === 'api_key_input' && searchState.pendingProvider) {
       const input = new ApiKeyInputComponent(true);
-      input.onSubmit = (apiKey) => searchSelection.handleApiKeySubmit(apiKey);
-      input.onCancel = () => searchSelection.handleApiKeySubmit(null);
+      input.onSubmit = (apiKey) => void searchSelection.handleApiKeySubmit(apiKey);
+      input.onCancel = () => void searchSelection.handleApiKeySubmit(null);
       const apiKeyName = getApiKeyNameForSearchProvider(searchState.pendingProvider);
       showScreenView(
         `Enter ${getSearchProviderDisplayName(searchState.pendingProvider)} API Key`,

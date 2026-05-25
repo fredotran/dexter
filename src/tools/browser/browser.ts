@@ -129,16 +129,82 @@ To press Enter:
 - Close the browser when done to free system resources
 `.trim();
 
+const BLOCKED_DOMAINS = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '::'];
+
+const MAX_NAVIGATION_TIME = 30000;
+const MAX_PAGE_SIZE = 100_000_000;
+
+/**
+ * Validate that a URL is safe to navigate to.
+ * Blocks non-HTTP(S) protocols, localhost, private IPs, and raw IP addresses.
+ */
+function isUrlAllowed(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    return false;
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (!hostname) {
+    return false;
+  }
+
+  if (BLOCKED_DOMAINS.includes(hostname)) {
+    return false;
+  }
+
+  // Block all IPv4 addresses
+  const ipv4Regex = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+  if (ipv4Regex.test(hostname)) {
+    const parts = hostname.split('.').map(Number);
+    // Private and loopback ranges
+    if (parts[0] === 10) return false;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
+    if (parts[0] === 192 && parts[1] === 168) return false;
+    if (parts[0] === 127) return false;
+    if (parts[0] === 169 && parts[1] === 254) return false;
+    if (parts[0] === 0) return false;
+    // Block all other public IPv4 addresses as defense in depth
+    return false;
+  }
+
+  // Block all IPv6 addresses
+  const ipv6Regex = /^[a-fA-F0-9:]+$/;
+  if (ipv6Regex.test(hostname) && hostname.includes(':')) {
+    return false;
+  }
+
+  return true;
+}
+
 /**
  * Ensure browser and page are initialized.
  * Lazily launches a headless Chromium browser on first use.
  */
 async function ensureBrowser(): Promise<Page> {
   if (!browser) {
-    browser = await chromium.launch({ headless: false });
+    browser = await chromium.launch({
+      headless: false,
+      args: [
+        '--enable-features=StrictOriginIsolation',
+        '--disable-background-networking',
+        '--disable-default-apps',
+      ],
+    });
   }
   if (!page) {
-    const context = await browser.newContext();
+    const context = await browser.newContext({
+      permissions: [],
+      javaScriptEnabled: true,
+      bypassCSP: false,
+    });
     page = await context.newPage();
   }
   return page;
@@ -275,9 +341,12 @@ export const browserTool = new DynamicStructuredTool({
           if (!url) {
             return formatToolResult({ error: 'url is required for navigate action' });
           }
+          if (!isUrlAllowed(url)) {
+            return formatToolResult({ error: 'URL is not allowed for security reasons' });
+          }
           const p = await ensureBrowser();
           // Use networkidle for better JS rendering on dynamic sites
-          await p.goto(url, { timeout: 30000, waitUntil: 'networkidle' });
+          await p.goto(url, { timeout: MAX_NAVIGATION_TIME, waitUntil: 'networkidle' });
           return formatToolResult({
             ok: true,
             url: p.url(),
@@ -290,10 +359,13 @@ export const browserTool = new DynamicStructuredTool({
           if (!url) {
             return formatToolResult({ error: 'url is required for open action' });
           }
+          if (!isUrlAllowed(url)) {
+            return formatToolResult({ error: 'URL is not allowed for security reasons' });
+          }
           const currentPage = await ensureBrowser();
           const context = currentPage.context();
           const newPage = await context.newPage();
-          await newPage.goto(url, { timeout: 30000, waitUntil: 'networkidle' });
+          await newPage.goto(url, { timeout: MAX_NAVIGATION_TIME, waitUntil: 'networkidle' });
           // Switch to the new page
           page = newPage;
           return formatToolResult({
@@ -399,16 +471,37 @@ export const browserTool = new DynamicStructuredTool({
           const p = await ensureBrowser();
           // Wait for content to be fully loaded
           await p.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
-          
+
           // Extract visible text from main content area, falling back to body
-          const content = await p.evaluate(() => {
+          let content = await p.evaluate(() => {
             const main = document.querySelector('main, article, [role="main"], .content, #content') as HTMLElement | null;
             return (main || document.body).innerText;
           });
+
+          let truncated = false;
+          let securityWarning = false;
+
+          // Enforce maximum page size
+          if (content.length > MAX_PAGE_SIZE) {
+            content = content.slice(0, MAX_PAGE_SIZE) + '\n\n[TRUNCATED: content exceeded maximum page size]';
+            truncated = true;
+          }
+
+          // Defensive check for suspicious patterns in extracted text
+          const suspiciousPatterns = [/javascript:/gi, /data:/gi, /vbscript:/gi, /<script/gi, /<iframe/gi];
+          for (const pattern of suspiciousPatterns) {
+            if (pattern.test(content)) {
+              content = content.replace(pattern, '[REMOVED]');
+              securityWarning = true;
+            }
+          }
+
           return formatToolResult({
             url: p.url(),
             title: await p.title(),
             content,
+            truncated,
+            securityWarning,
           });
         }
 

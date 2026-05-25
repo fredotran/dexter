@@ -60,10 +60,10 @@ export class SearchSelectionController {
     this.resetPendingState();
   }
 
-  handleProviderSelect(providerId: SearchProviderId) {
+  async handleProviderSelect(providerId: SearchProviderId) {
     this.pendingProviderValue = providerId;
 
-    if (checkApiKeyForSearchProvider(providerId)) {
+    if (await checkApiKeyForSearchProvider(providerId)) {
       this.commitPreference(providerId);
       return;
     }
@@ -72,7 +72,7 @@ export class SearchSelectionController {
     this.emitChange();
   }
 
-  handleApiKeyConfirm(wantsToSet: boolean) {
+  async handleApiKeyConfirm(wantsToSet: boolean) {
     if (!this.pendingProviderValue) {
       this.resetPendingState();
       return;
@@ -90,7 +90,7 @@ export class SearchSelectionController {
     this.resetPendingState();
   }
 
-  handleApiKeySubmit(apiKey: string | null) {
+  async handleApiKeySubmit(apiKey: string | null) {
     if (!this.pendingProviderValue) {
       this.resetPendingState();
       return;
@@ -104,7 +104,7 @@ export class SearchSelectionController {
       return;
     }
 
-    const saved = saveApiKeyForSearchProvider(this.pendingProviderValue, apiKey);
+    const saved = await saveApiKeyForSearchProvider(this.pendingProviderValue, apiKey);
     if (!saved) {
       this.onError('Failed to save API key.');
       this.resetPendingState();

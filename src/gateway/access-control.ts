@@ -1,10 +1,15 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { randomInt } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { isSelfChatMode, normalizeE164 } from './utils.js';
 import { dexterPath } from '../utils/paths.js';
+import { encryptValue, decryptValue, getEncryptionKey } from '../utils/encryption.js';
+import { logSecurityEvent } from './security-log.js';
 
 const PAIRING_REPLY_HISTORY_GRACE_MS = 30_000;
+const MAX_PAIRING_ATTEMPTS = 5;
+const PAIRING_LOCKOUT_MS = 300_000;
+const PAIRING_CODE_EXPIRY_MS = 600_000;
 
 type PairingRequest = {
   phone: string;
@@ -13,6 +18,8 @@ type PairingRequest = {
 };
 
 type PairingStore = Record<string, PairingRequest>;
+
+const PAIRING_ATTEMPTS = new Map<string, { count: number; lastAttempt: number }>();
 
 function pairingPath(): string {
   return (
@@ -27,7 +34,12 @@ function loadPairingStore(): PairingStore {
     return {};
   }
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as PairingStore;
+    const content = readFileSync(path, 'utf8');
+    if (content.startsWith('encrypted:')) {
+      const decrypted = decryptValue(content.slice(10), getEncryptionKey());
+      return JSON.parse(decrypted) as PairingStore;
+    }
+    return JSON.parse(content) as PairingStore;
   } catch {
     return {};
   }
@@ -39,18 +51,63 @@ function savePairingStore(store: PairingStore): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  writeFileSync(path, JSON.stringify(store, null, 2), 'utf8');
+  const encrypted = encryptValue(JSON.stringify(store), getEncryptionKey());
+  writeFileSync(path, 'encrypted:' + encrypted, 'utf8');
+  chmodSync(path, 0o600);
 }
 
 export function createPairingCode(): string {
-  return String(randomInt(100000, 999999));
+  return randomBytes(6).toString('base64url').slice(0, 8).toUpperCase();
+}
+
+function isPairingCodeExpired(createdAt: number): boolean {
+  return Date.now() - createdAt > PAIRING_CODE_EXPIRY_MS;
+}
+
+export function isPairingRateLimited(phone: string): boolean {
+  const normalized = normalizeE164(phone);
+  const attempts = PAIRING_ATTEMPTS.get(normalized);
+  if (!attempts) return false;
+  if (Date.now() - attempts.lastAttempt > PAIRING_LOCKOUT_MS) {
+    PAIRING_ATTEMPTS.delete(normalized);
+    return false;
+  }
+  return attempts.count >= MAX_PAIRING_ATTEMPTS;
+}
+
+export function recordFailedPairingAttempt(phone: string): void {
+  const normalized = normalizeE164(phone);
+  const existing = PAIRING_ATTEMPTS.get(normalized);
+  if (existing && Date.now() - existing.lastAttempt > PAIRING_LOCKOUT_MS) {
+    PAIRING_ATTEMPTS.set(normalized, { count: 1, lastAttempt: Date.now() });
+  } else if (existing) {
+    existing.count += 1;
+    existing.lastAttempt = Date.now();
+  } else {
+    PAIRING_ATTEMPTS.set(normalized, { count: 1, lastAttempt: Date.now() });
+  }
+  logSecurityEvent({
+    type: 'pairing_attempt',
+    senderId: normalized,
+    details: `Failed pairing attempt (count=${PAIRING_ATTEMPTS.get(normalized)?.count ?? 1})`,
+    severity: 'warn',
+  });
 }
 
 export function recordPairingRequest(phone: string): PairingRequest {
   const normalized = normalizeE164(phone);
+  if (isPairingRateLimited(normalized)) {
+    logSecurityEvent({
+      type: 'pairing_attempt',
+      senderId: normalized,
+      details: 'Pairing request blocked: rate limited',
+      severity: 'error',
+    });
+    throw new Error(`Too many failed pairing attempts for ${normalized}. Try again later.`);
+  }
   const store = loadPairingStore();
   const existing = store[normalized];
-  if (existing) {
+  if (existing && !isPairingCodeExpired(existing.createdAt)) {
     return existing;
   }
   const request: PairingRequest = {
@@ -60,6 +117,12 @@ export function recordPairingRequest(phone: string): PairingRequest {
   };
   store[normalized] = request;
   savePairingStore(store);
+  logSecurityEvent({
+    type: 'pairing_attempt',
+    senderId: normalized,
+    details: `New pairing code generated: ${request.code}`,
+    severity: 'info',
+  });
   return request;
 }
 

@@ -1,11 +1,16 @@
 import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import type {
   MemoryChunk,
   MemoryKeywordCandidate,
   MemorySearchResult,
   MemoryVectorCandidate,
 } from './types.js';
+import { logger } from '../utils/logger.js';
+import { getEncryptionKey } from '../utils/encryption.js';
 
 type SqliteQuery<T> = {
   all(...params: unknown[]): T[];
@@ -81,16 +86,25 @@ function fromBlob(blob: Uint8Array): number[] {
   return Array.from(new Float32Array(buffer));
 }
 
+const MAX_QUERY_LENGTH = 500;
+const MAX_TOKENS = 20;
+
 // Build an FTS5 AND query with quoted, Unicode-aware tokens for precise matching.
 // Vector search already provides broad recall; keyword search should be precise.
 function buildFtsQuery(raw: string): string {
+  if (raw.length > MAX_QUERY_LENGTH) {
+    raw = raw.slice(0, MAX_QUERY_LENGTH);
+  }
+  // Strip FTS5 operator keywords before tokenising.
+  const cleaned = raw.replace(/\b(NEAR|NOT)\b/giu, ' ');
   const tokens =
-    raw
+    cleaned
       .match(/[\p{L}\p{N}_]+/gu)
       ?.map((t) => t.trim())
       .filter(Boolean) ?? [];
   if (tokens.length === 0) return '';
-  const quoted = tokens.map((t) => `"${t.replaceAll('"', '')}"`);
+  const limited = tokens.slice(0, MAX_TOKENS);
+  const quoted = limited.map((t) => `"${t.replaceAll('"', '')}"`);
   return quoted.join(' AND ');
 }
 
@@ -113,13 +127,89 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+// ============================================================================
+// File-level database encryption helpers
+// ============================================================================
+
+const FILE_ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const ENCRYPTED_HEADER = 'encrypted:';
+
+function deriveFileEncryptionKey(): Buffer {
+  return createHash('sha256').update(getEncryptionKey()).digest();
+}
+
+function encryptBuffer(plaintext: Buffer, key: Buffer): Buffer {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv(FILE_ENCRYPTION_ALGORITHM, key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return Buffer.concat([iv, authTag, encrypted]);
+}
+
+function decryptBuffer(encrypted: Buffer, key: Buffer): Buffer {
+  const iv = encrypted.slice(0, 12);
+  const authTag = encrypted.slice(12, 28);
+  const ciphertext = encrypted.slice(28);
+  const decipher = createDecipheriv(FILE_ENCRYPTION_ALGORITHM, key, iv);
+  decipher.setAuthTag(authTag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
+function isEncryptedDatabaseFile(path: string): boolean {
+  if (!existsSync(path)) {
+    return false;
+  }
+  const buf = readFileSync(path);
+  const header = Buffer.from(ENCRYPTED_HEADER);
+  return buf.length >= header.length && buf.slice(0, header.length).equals(header);
+}
+
+function encryptDatabaseFile(sourcePath: string, targetPath: string): void {
+  const key = deriveFileEncryptionKey();
+  const plaintext = readFileSync(sourcePath);
+  const encrypted = encryptBuffer(plaintext, key);
+  writeFileSync(targetPath, ENCRYPTED_HEADER + encrypted.toString('hex'));
+}
+
+function decryptDatabaseFile(path: string): string {
+  const key = deriveFileEncryptionKey();
+  const buf = readFileSync(path);
+  const header = Buffer.from(ENCRYPTED_HEADER);
+  const payload = buf.slice(header.length).toString('utf8');
+  const encrypted = Buffer.from(payload, 'hex');
+  const plaintext = decryptBuffer(encrypted, key);
+  const tempPath = join(tmpdir(), `dexter-db-${randomBytes(8).toString('hex')}.sqlite`);
+  writeFileSync(tempPath, plaintext);
+  return tempPath;
+}
+
+// ============================================================================
+// MemoryDatabase
+// ============================================================================
+
 export class MemoryDatabase {
-  private constructor(private readonly db: SqliteDatabase) {}
+  private originalPath: string;
+  private tempPath: string | null = null;
+
+  private constructor(private readonly db: SqliteDatabase) {
+    this.originalPath = '';
+  }
 
   static async create(path: string): Promise<MemoryDatabase> {
     await mkdir(dirname(path), { recursive: true });
-    const db = await MemoryDatabase.openSqlite(path);
+
+    let dbPath = path;
+    let usedTemp = false;
+
+    if (existsSync(path) && isEncryptedDatabaseFile(path)) {
+      dbPath = decryptDatabaseFile(path);
+      usedTemp = true;
+    }
+
+    const db = await MemoryDatabase.openSqlite(dbPath);
     const memoryDb = new MemoryDatabase(db);
+    memoryDb.originalPath = path;
+    memoryDb.tempPath = usedTemp ? dbPath : null;
     memoryDb.db.exec(CREATE_SCHEMA_SQL);
     memoryDb.runMigrations();
     return memoryDb;
@@ -137,7 +227,14 @@ export class MemoryDatabase {
     try {
       const sqlite = await import('bun:sqlite');
       const DatabaseCtor = sqlite.Database as new (dbPath: string) => SqliteDatabase;
-      return new DatabaseCtor(path);
+      const db = new DatabaseCtor(path);
+      try {
+        const escapedKey = getEncryptionKey().replaceAll("'", "''");
+        db.exec(`PRAGMA key = '${escapedKey}'`);
+      } catch {
+        // SQLCipher not available; rely on file-level encryption
+      }
+      return db;
     } catch {
       return MemoryDatabase.openBetterSqlite3(path);
     }
@@ -147,6 +244,12 @@ export class MemoryDatabase {
     const mod = await import('better-sqlite3');
     const Database = mod.default;
     const raw = new Database(path);
+    try {
+      const escapedKey = getEncryptionKey().replaceAll('"', '""');
+      raw.pragma(`key = "${escapedKey}"`);
+    } catch {
+      // SQLCipher not available; rely on file-level encryption
+    }
 
     return {
       exec: (sql: string) => raw.exec(sql),
@@ -164,6 +267,12 @@ export class MemoryDatabase {
 
   close(): void {
     this.db.close();
+    if (this.tempPath) {
+      encryptDatabaseFile(this.tempPath, this.originalPath);
+      unlinkSync(this.tempPath);
+    } else {
+      encryptDatabaseFile(this.originalPath, this.originalPath);
+    }
   }
 
   getProviderFingerprint(): string | null {
@@ -317,19 +426,25 @@ export class MemoryDatabase {
   }
 
   searchKeyword(query: string, maxResults: number): MemoryKeywordCandidate[] {
-    const sanitized = buildFtsQuery(query);
-    if (!sanitized) {
+    try {
+      const sanitized = buildFtsQuery(query);
+      if (!sanitized) {
+        return [];
+      }
+      const rows = this.db
+        .query<{ chunk_id: number; rank: number }>(
+          'SELECT chunk_id, bm25(chunks_fts) AS rank FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY rank LIMIT ?',
+        )
+        .all(sanitized, maxResults);
+      return rows.map((row) => ({
+        chunkId: row.chunk_id,
+        score: 1 / (1 + Math.max(0, row.rank)),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`FTS keyword search failed: ${message}`, { query });
       return [];
     }
-    const rows = this.db
-      .query<{ chunk_id: number; rank: number }>(
-        'SELECT chunk_id, bm25(chunks_fts) AS rank FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY rank LIMIT ?',
-      )
-      .all(sanitized, maxResults);
-    return rows.map((row) => ({
-      chunkId: row.chunk_id,
-      score: 1 / (1 + Math.max(0, row.rank)),
-    }));
   }
 
   loadResultsByIds(ids: number[]): MemorySearchResult[] {

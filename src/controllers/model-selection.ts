@@ -114,7 +114,7 @@ export class ModelSelectionController {
     this.emitChange();
   }
 
-  handleModelSelect(modelId: string | null) {
+  async handleModelSelect(modelId: string | null) {
     if (!modelId || !this.pendingProviderValue) {
       this.pendingProviderValue = null;
       this.pendingModelsValue = [];
@@ -129,7 +129,7 @@ export class ModelSelectionController {
       return;
     }
 
-    if (checkApiKeyExistsForProvider(this.pendingProviderValue)) {
+    if (await checkApiKeyExistsForProvider(this.pendingProviderValue)) {
       this.completeModelSwitch(this.pendingProviderValue, modelId);
       return;
     }
@@ -139,7 +139,7 @@ export class ModelSelectionController {
     this.emitChange();
   }
 
-  handleModelInputSubmit(modelName: string | null) {
+  async handleModelInputSubmit(modelName: string | null) {
     if (!modelName || !this.pendingProviderValue) {
       this.pendingProviderValue = null;
       this.pendingModelsValue = [];
@@ -150,7 +150,7 @@ export class ModelSelectionController {
     }
 
     const fullModelId = `${this.pendingProviderValue}:${modelName}`;
-    if (checkApiKeyExistsForProvider(this.pendingProviderValue)) {
+    if (await checkApiKeyExistsForProvider(this.pendingProviderValue)) {
       this.completeModelSwitch(this.pendingProviderValue, fullModelId);
       return;
     }
@@ -160,7 +160,7 @@ export class ModelSelectionController {
     this.emitChange();
   }
 
-  handleApiKeyConfirm(wantsToSet: boolean) {
+  async handleApiKeyConfirm(wantsToSet: boolean) {
     if (wantsToSet) {
       this.appStateValue = 'api_key_input';
       this.emitChange();
@@ -170,7 +170,7 @@ export class ModelSelectionController {
     if (
       this.pendingProviderValue &&
       this.pendingSelectedModelId &&
-      checkApiKeyExistsForProvider(this.pendingProviderValue)
+      (await checkApiKeyExistsForProvider(this.pendingProviderValue))
     ) {
       this.completeModelSwitch(this.pendingProviderValue, this.pendingSelectedModelId);
       return;
@@ -184,7 +184,7 @@ export class ModelSelectionController {
     this.resetPendingState();
   }
 
-  handleApiKeySubmit(apiKey: string | null) {
+  async handleApiKeySubmit(apiKey: string | null) {
     if (!this.pendingSelectedModelId) {
       this.onError('No model selected.');
       this.resetPendingState();
@@ -192,7 +192,7 @@ export class ModelSelectionController {
     }
 
     if (apiKey && this.pendingProviderValue) {
-      const saved = saveApiKeyForProvider(this.pendingProviderValue, apiKey);
+      const saved = await saveApiKeyForProvider(this.pendingProviderValue, apiKey);
       if (saved) {
         this.completeModelSwitch(this.pendingProviderValue, this.pendingSelectedModelId);
       } else {
@@ -205,7 +205,7 @@ export class ModelSelectionController {
     if (
       !apiKey &&
       this.pendingProviderValue &&
-      checkApiKeyExistsForProvider(this.pendingProviderValue)
+      (await checkApiKeyExistsForProvider(this.pendingProviderValue))
     ) {
       this.completeModelSwitch(this.pendingProviderValue, this.pendingSelectedModelId);
       return;

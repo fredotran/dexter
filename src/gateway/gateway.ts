@@ -25,6 +25,8 @@ import type { GroupContext } from '../agent/prompts.js';
 import { appendFileSync } from 'node:fs';
 import { dexterPath } from '../utils/paths.js';
 import { getSetting } from '../utils/config.js';
+import { checkRateLimit } from './rate-limiter.js';
+import { logSecurityEvent } from './security-log.js';
 
 const LOG_PATH = dexterPath('gateway-debug.log');
 function debugLog(msg: string) {
@@ -46,6 +48,28 @@ async function handleInbound(cfg: GatewayConfig, inbound: WhatsAppInboundMessage
   const isGroup = inbound.chatType === 'group';
   console.log(`Inbound message ${inbound.from} (${inbound.chatType}, ${inbound.body.length} chars): "${bodyPreview}"`);
   debugLog(`[gateway] handleInbound from=${inbound.from} isGroup=${isGroup} body="${inbound.body.slice(0, 30)}..."`);
+
+  // --- Rate limiting ---
+  const rateLimit = checkRateLimit(inbound.senderId, inbound.accountId);
+  if (!rateLimit.allowed) {
+    debugLog(`[gateway] rate limited: ${rateLimit.reason} for ${inbound.senderId}`);
+    logSecurityEvent({
+      type: 'rate_limit',
+      senderId: inbound.senderId,
+      accountId: inbound.accountId,
+      details: `Rate limited: ${rateLimit.reason}`,
+      severity: 'warn',
+    });
+    // Optionally send a brief "rate limited" reply for DMs
+    if (!isGroup && inbound.replyToJid) {
+      await sendMessageWhatsApp({
+        to: inbound.replyToJid,
+        body: `You're sending messages too quickly. Please wait ${Math.ceil((rateLimit.retryAfter ?? 0) / 1000)} seconds.`,
+        accountId: inbound.accountId,
+      });
+    }
+    return;
+  }
 
   // --- Group-specific: track member, check mention gating ---
   if (isGroup) {
