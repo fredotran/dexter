@@ -27,11 +27,26 @@ export function loadSessionStore(path: string): SessionStore {
   try {
     const content = readFileSync(path, 'utf8');
     if (content.startsWith('encrypted:')) {
+      if (content.length <= 10) {
+        console.error('Invalid encrypted content length in session store');
+        return {};
+      }
       const decrypted = decryptValue(content.slice(10), getEncryptionKey());
-      return JSON.parse(decrypted) as SessionStore;
+      try {
+        return JSON.parse(decrypted) as SessionStore;
+      } catch (error) {
+        console.error('Failed to parse decrypted session store:', error);
+        return {};
+      }
     }
-    return JSON.parse(content) as SessionStore;
-  } catch {
+    try {
+      return JSON.parse(content) as SessionStore;
+    } catch (error) {
+      console.error('Failed to parse session store:', error);
+      return {};
+    }
+  } catch (error) {
+    console.error('Failed to load session store:', error);
     return {};
   }
 }

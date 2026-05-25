@@ -70,7 +70,7 @@ export function checkRateLimit(
 
   // Replenish burst bucket based on time since last message
   const elapsed = now - entry.lastMessage;
-  const replenished = Math.floor(elapsed / COOLDOWN_MS);
+  const replenished = Math.min(BURST_SIZE, Math.floor(elapsed / COOLDOWN_MS));
   entry.burstRemaining = Math.min(BURST_SIZE, entry.burstRemaining + replenished);
 
   // Check minute limit
@@ -126,7 +126,7 @@ export function getRateLimitStatus(
 
   // Replenish burst for status calculation
   const elapsed = now - entry.lastMessage;
-  const replenished = Math.floor(elapsed / COOLDOWN_MS);
+  const replenished = Math.min(BURST_SIZE, Math.floor(elapsed / COOLDOWN_MS));
   const burstRemaining = Math.min(BURST_SIZE, entry.burstRemaining + replenished);
 
   // Adjust counts for current window

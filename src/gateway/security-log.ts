@@ -5,7 +5,7 @@ import { dexterPath } from '../utils/paths.js';
 const SECURITY_LOG_PATH = dexterPath('security-audit.log');
 
 export function logSecurityEvent(event: {
-  type: 'rate_limit' | 'access_denied' | 'pairing_attempt' | 'invalid_message';
+  type: 'rate_limit' | 'access_denied' | 'pairing_attempt' | 'invalid_message' | 'pairing_store_error';
   senderId?: string;
   accountId?: string;
   details: string;

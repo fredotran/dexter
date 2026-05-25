@@ -44,8 +44,12 @@ export function maybeRestoreCredsFromBackup(authDir: string): void {
     const raw = readCredsJsonRaw(credsPath);
     if (raw) {
       // Validate that creds.json is parseable
-      JSON.parse(raw);
-      return;
+      try {
+        JSON.parse(raw);
+        return;
+      } catch {
+        // creds.json is corrupted, try restore from backup
+      }
     }
 
     const backupRaw = readCredsJsonRaw(backupPath);
@@ -54,9 +58,13 @@ export function maybeRestoreCredsFromBackup(authDir: string): void {
     }
 
     // Ensure backup is parseable before restoring
-    JSON.parse(backupRaw);
-    copyFileSync(backupPath, credsPath);
-    console.log('Restored WhatsApp creds.json from backup');
+    try {
+      JSON.parse(backupRaw);
+      copyFileSync(backupPath, credsPath);
+      console.log('Restored WhatsApp creds.json from backup');
+    } catch {
+      // backup is also corrupted
+    }
   } catch {
     // ignore
   }
@@ -72,8 +80,12 @@ export function backupCredsBeforeSave(authDir: string): void {
     const raw = readCredsJsonRaw(credsPath);
     if (raw) {
       // Validate before backing up
-      JSON.parse(raw);
-      copyFileSync(credsPath, backupPath);
+      try {
+        JSON.parse(raw);
+        copyFileSync(credsPath, backupPath);
+      } catch {
+        // creds.json is corrupted, skip backup
+      }
     }
   } catch {
     // ignore backup failures
@@ -92,8 +104,12 @@ export async function authExists(authDir: string): Promise<boolean> {
       return false;
     }
     const raw = readFileSync(credsPath, 'utf-8');
-    JSON.parse(raw);
-    return true;
+    try {
+      JSON.parse(raw);
+      return true;
+    } catch {
+      return false;
+    }
   } catch {
     return false;
   }
@@ -110,11 +126,15 @@ export function readSelfId(authDir: string): { e164: string | null; jid: string 
       return { e164: null, jid: null };
     }
     const raw = readFileSync(credsPath, 'utf-8');
-    const parsed = JSON.parse(raw) as { me?: { id?: string } } | undefined;
-    const jid = parsed?.me?.id ?? null;
-    // JID format: "1234567890:123@s.whatsapp.net" -> "+1234567890"
-    const e164 = jid ? jidToE164(jid) : null;
-    return { e164, jid };
+    try {
+      const parsed = JSON.parse(raw) as { me?: { id?: string } } | undefined;
+      const jid = parsed?.me?.id ?? null;
+      // JID format: "1234567890:123@s.whatsapp.net" -> "+1234567890"
+      const e164 = jid ? jidToE164(jid) : null;
+      return { e164, jid };
+    } catch {
+      return { e164: null, jid: null };
+    }
   } catch {
     return { e164: null, jid: null };
   }

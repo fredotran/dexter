@@ -86,7 +86,10 @@ export async function saveToKeychain(
   const platform = getPlatform();
   try {
     // Validate service and account parameters to prevent command injection
-    if (!/^[a-zA-Z0-9._-]+$/.test(service) || !/^[a-zA-Z0-9._@+-]+$/.test(account)) {
+    const VALID_SERVICE_REGEX = /^[a-zA-Z0-9._-]{1,64}$/;
+    const VALID_ACCOUNT_REGEX = /^[a-zA-Z0-9._-]{1,64}$/;
+
+    if (!VALID_SERVICE_REGEX.test(service) || !VALID_ACCOUNT_REGEX.test(account)) {
       throw new Error('Invalid service or account name');
     }
     if (platform === 'darwin') {
@@ -127,6 +130,14 @@ export async function getFromKeychain(
 ): Promise<string | null> {
   const platform = getPlatform();
   try {
+    // Validate service and account parameters to prevent command injection
+    const VALID_SERVICE_REGEX = /^[a-zA-Z0-9._-]{1,64}$/;
+    const VALID_ACCOUNT_REGEX = /^[a-zA-Z0-9._-]{1,64}$/;
+
+    if (!VALID_SERVICE_REGEX.test(service) || !VALID_ACCOUNT_REGEX.test(account)) {
+      throw new Error('Invalid service or account name');
+    }
+
     if (platform === 'darwin') {
       const { stdout, exitCode } = await runCommand('security', [
         'find-generic-password',
@@ -167,6 +178,14 @@ export async function deleteFromKeychain(
 ): Promise<boolean> {
   const platform = getPlatform();
   try {
+    // Validate service and account parameters to prevent command injection
+    const VALID_SERVICE_REGEX = /^[a-zA-Z0-9._-]{1,64}$/;
+    const VALID_ACCOUNT_REGEX = /^[a-zA-Z0-9._-]{1,64}$/;
+
+    if (!VALID_SERVICE_REGEX.test(service) || !VALID_ACCOUNT_REGEX.test(account)) {
+      throw new Error('Invalid service or account name');
+    }
+
     if (platform === 'darwin') {
       const { exitCode } = await runCommand('security', [
         'delete-generic-password',

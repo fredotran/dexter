@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { isSelfChatMode, normalizeE164 } from './utils.js';
 import { dexterPath } from '../utils/paths.js';
 import { encryptValue, decryptValue, getEncryptionKey } from '../utils/encryption.js';
@@ -10,6 +10,15 @@ const PAIRING_REPLY_HISTORY_GRACE_MS = 30_000;
 const MAX_PAIRING_ATTEMPTS = 5;
 const PAIRING_LOCKOUT_MS = 300_000;
 const PAIRING_CODE_EXPIRY_MS = 600_000;
+
+function constantTimeStringEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const aBuffer = Buffer.from(a);
+  const bBuffer = Buffer.from(b);
+  return timingSafeEqual(aBuffer, bBuffer);
+}
 
 type PairingRequest = {
   phone: string;
@@ -36,11 +45,42 @@ function loadPairingStore(): PairingStore {
   try {
     const content = readFileSync(path, 'utf8');
     if (content.startsWith('encrypted:')) {
+      if (content.length <= 10) {
+        logSecurityEvent({
+          type: 'pairing_store_error',
+          details: 'Invalid encrypted content length',
+          severity: 'error',
+        });
+        return {};
+      }
       const decrypted = decryptValue(content.slice(10), getEncryptionKey());
-      return JSON.parse(decrypted) as PairingStore;
+      try {
+        return JSON.parse(decrypted) as PairingStore;
+      } catch (error) {
+        logSecurityEvent({
+          type: 'pairing_store_error',
+          details: 'Failed to parse decrypted pairing store',
+          severity: 'error',
+        });
+        return {};
+      }
     }
-    return JSON.parse(content) as PairingStore;
-  } catch {
+    try {
+      return JSON.parse(content) as PairingStore;
+    } catch (error) {
+      logSecurityEvent({
+        type: 'pairing_store_error',
+        details: 'Failed to parse pairing store',
+        severity: 'error',
+      });
+      return {};
+    }
+  } catch (error) {
+    logSecurityEvent({
+      type: 'pairing_store_error',
+      details: 'Failed to load pairing store',
+      severity: 'error',
+    });
     return {};
   }
 }
@@ -135,7 +175,8 @@ export function isAllowedPhone(params: {
   if (allowFrom.includes('+*') || params.allowFrom.includes('*')) {
     return { allowed: true, normalizedFrom };
   }
-  return { allowed: allowFrom.includes(normalizedFrom), normalizedFrom };
+  const allowed = allowFrom.some((allowedPhone) => constantTimeStringEqual(allowedPhone, normalizedFrom));
+  return { allowed, normalizedFrom };
 }
 
 export function buildPairingReply(code: string, senderId: string): string {
@@ -175,7 +216,7 @@ export async function checkInboundAccessControl(params: {
   const normalizedSelfE164 = params.selfE164 ? normalizeE164(params.selfE164) : null;
   const normalizedFrom = normalizeE164(params.from);
   const normalizedSenderE164 = params.senderE164 ? normalizeE164(params.senderE164) : null;
-  const isSamePhone = normalizedSelfE164 != null && normalizedFrom === normalizedSelfE164;
+  const isSamePhone = normalizedSelfE164 != null && constantTimeStringEqual(normalizedFrom, normalizedSelfE164);
   const isSelfChat = isSelfChatMode(params.selfE164, params.allowFrom);
   const pairingGraceMs =
     typeof params.pairingGraceMs === 'number' && params.pairingGraceMs > 0
@@ -207,7 +248,8 @@ export async function checkInboundAccessControl(params: {
     }
     const senderIsSelf =
       normalizedSelfE164 != null &&
-      (normalizedFrom === normalizedSelfE164 || normalizedSenderE164 === normalizedSelfE164);
+      (constantTimeStringEqual(normalizedFrom, normalizedSelfE164) ||
+        (normalizedSenderE164 != null && constantTimeStringEqual(normalizedSenderE164, normalizedSelfE164)));
     if (!senderIsSelf) {
       return {
         allowed: false,
@@ -251,7 +293,8 @@ export async function checkInboundAccessControl(params: {
     }
     const senderAllowed =
       groupHasWildcard ||
-      (normalizedSenderE164 != null && normalizedGroupAllowFrom.includes(normalizedSenderE164));
+      (normalizedSenderE164 != null &&
+        normalizedGroupAllowFrom.some((allowedPhone) => constantTimeStringEqual(allowedPhone, normalizedSenderE164)));
     if (!senderAllowed) {
       return {
         allowed: false,
@@ -289,7 +332,8 @@ export async function checkInboundAccessControl(params: {
     if (params.dmPolicy !== 'open' && !isSamePhone) {
       const allowed =
         dmHasWildcard ||
-        (normalizedAllowFrom.length > 0 && normalizedAllowFrom.includes(normalizedFrom));
+        (normalizedAllowFrom.length > 0 &&
+          normalizedAllowFrom.some((allowedPhone) => constantTimeStringEqual(allowedPhone, normalizedFrom)));
       if (!allowed) {
         if (params.dmPolicy === 'pairing' && !suppressPairingReply) {
           const pairing = recordPairingRequest(normalizedFrom);

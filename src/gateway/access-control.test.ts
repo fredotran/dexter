@@ -17,6 +17,7 @@ describe('access control', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dexter-pairing-'));
     const path = join(dir, 'whatsapp.json');
     process.env.DEXTER_PAIRING_PATH = path;
+    process.env.DEXTER_ENCRYPTION_KEY = 'test-encryption-key-32-chars-long!';
     try {
       const pairing = recordPairingRequest('+15550001111');
       expect(pairing.code.length).toBe(8);
@@ -24,6 +25,7 @@ describe('access control', () => {
       expect(raw.startsWith('encrypted:')).toBe(true);
     } finally {
       delete process.env.DEXTER_PAIRING_PATH;
+      delete process.env.DEXTER_ENCRYPTION_KEY;
       rmSync(dir, { recursive: true, force: true });
     }
   });

@@ -12,6 +12,7 @@ describe('session store', () => {
   test('creates and updates session metadata', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dexter-sessions-'));
     process.env.DEXTER_SESSIONS_DIR = dir;
+    process.env.DEXTER_ENCRYPTION_KEY = 'test-encryption-key-32-chars-long!';
     try {
       const storePath = resolveSessionStorePath('agentA');
       upsertSessionMeta({
@@ -29,6 +30,7 @@ describe('session store', () => {
       expect(entry.lastChannel).toBe('whatsapp');
     } finally {
       delete process.env.DEXTER_SESSIONS_DIR;
+      delete process.env.DEXTER_ENCRYPTION_KEY;
       rmSync(dir, { recursive: true, force: true });
     }
   });

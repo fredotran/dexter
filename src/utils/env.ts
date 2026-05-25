@@ -29,6 +29,9 @@ function maybeDecryptValue(raw: string | undefined): string | undefined {
   const trimmed = raw.trim();
   if (trimmed.startsWith('encrypted:')) {
     try {
+      if (trimmed.length <= 'encrypted:'.length) {
+        return undefined;
+      }
       const encrypted = trimmed.slice('encrypted:'.length);
       return decryptValue(encrypted, getEncryptionKey());
     } catch {

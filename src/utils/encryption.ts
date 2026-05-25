@@ -2,21 +2,18 @@
  * Encryption helpers for sensitive data and file-level encryption.
  *
  * Uses AES-256-GCM for authenticated encryption. The encryption key is derived
- * from DEXTER_ENCRYPTION_KEY when available, falling back to a deterministic
- * key based on the current working directory so the same project always
- * decrypts correctly without explicit configuration.
+ * from DEXTER_ENCRYPTION_KEY which must be set explicitly for security.
  */
-import { createCipheriv, createDecipheriv, createHash, pbkdf2Sync, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 
 export function getEncryptionKey(): string {
   const envKey = process.env.DEXTER_ENCRYPTION_KEY;
-  if (envKey && envKey.length >= 16) {
+  if (envKey && envKey.length >= 32) {
     return envKey;
   }
-  // Fallback: derive a deterministic key from the current working directory using PBKDF2.
-  return pbkdf2Sync(process.cwd(), 'dexter-salt', 100000, 32, 'sha256').toString('hex');
+  throw new Error('DEXTER_ENCRYPTION_KEY must be set and at least 32 characters');
 }
 
 function deriveKey(key: string): Buffer {

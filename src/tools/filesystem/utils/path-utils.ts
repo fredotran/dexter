@@ -35,7 +35,7 @@ export function expandPath(filePath: string): string {
 export function resolveToCwd(filePath: string, cwd: string): string {
   const expanded = expandPath(filePath);
   if (isAbsolute(expanded)) {
-    return expanded;
+    throw new Error('Absolute paths are not allowed for security reasons');
   }
   return resolvePath(cwd, expanded);
 }

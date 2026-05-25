@@ -160,6 +160,15 @@ export class AgentToolExecutor {
         throw new Error(`Tool '${toolName}' not found`);
       }
 
+      // Validate tool arguments against schema if available
+      if (tool.schema && 'parseAsync' in tool.schema && typeof tool.schema.parseAsync === 'function') {
+        try {
+          await tool.schema.parseAsync(toolArgs);
+        } catch (error) {
+          throw new Error(`Invalid tool arguments for ${toolName}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
       const channel = createProgressChannel();
       const config = {
         metadata: { onProgress: channel.emit },
