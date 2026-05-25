@@ -13,7 +13,7 @@
 function fmtNum(n: unknown): string {
   if (n === null || n === undefined) return '—';
   const num = Number(n);
-  if (isNaN(num)) return '—';
+  if (isNaN(num) || !isFinite(num)) return '—';
   const abs = Math.abs(num);
   const sign = num < 0 ? '-' : '';
   if (abs >= 1e12) return `${sign}${(abs / 1e12).toFixed(1)}T`;

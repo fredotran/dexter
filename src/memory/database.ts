@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises';
-import { existsSync, readFileSync, writeFileSync, unlinkSync, chmodSync, rmSync, mkdtempSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, rmSync, mkdtempSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
@@ -179,9 +179,9 @@ function decryptDatabaseFile(path: string): string {
   const encrypted = Buffer.from(payload, 'hex');
   const plaintext = decryptBuffer(encrypted, key);
   const tempDir = mkdtempSync(join(tmpdir(), 'dexter-'));
+  chmodSync(tempDir, 0o700);
   const tempPath = join(tempDir, 'db.sqlite');
-  writeFileSync(tempPath, plaintext);
-  chmodSync(tempPath, 0o600);
+  writeFileSync(tempPath, plaintext, { mode: 0o600 });
   return tempPath;
 }
 

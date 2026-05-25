@@ -2,6 +2,9 @@ import { readFileSync } from 'fs';
 import matter from 'gray-matter';
 import type { Skill, SkillSource } from './types.js';
 
+const MAX_NAME_LENGTH = 256;
+const MAX_DESC_LENGTH = 2048;
+
 /**
  * Parse a SKILL.md file content into a Skill object.
  * Extracts YAML frontmatter (name, description) and the markdown body (instructions).
@@ -16,11 +19,11 @@ export function parseSkillFile(content: string, path: string, source: SkillSourc
   const { data, content: instructions } = matter(content);
 
   // Validate required frontmatter fields
-  if (!data.name || typeof data.name !== 'string') {
-    throw new Error(`Skill at ${path} is missing required 'name' field in frontmatter`);
+  if (!data.name || typeof data.name !== 'string' || data.name.length > MAX_NAME_LENGTH) {
+    throw new Error(`Skill name must be 1-${MAX_NAME_LENGTH} characters`);
   }
-  if (!data.description || typeof data.description !== 'string') {
-    throw new Error(`Skill at ${path} is missing required 'description' field in frontmatter`);
+  if (!data.description || typeof data.description !== 'string' || data.description.length > MAX_DESC_LENGTH) {
+    throw new Error(`Skill description must be 1-${MAX_DESC_LENGTH} characters`);
   }
 
   return {
@@ -57,11 +60,11 @@ export function extractSkillMetadata(path: string, source: SkillSource): { name:
   const content = readFileSync(path, 'utf-8');
   const { data } = matter(content);
 
-  if (!data.name || typeof data.name !== 'string') {
-    throw new Error(`Skill at ${path} is missing required 'name' field in frontmatter`);
+  if (!data.name || typeof data.name !== 'string' || data.name.length > MAX_NAME_LENGTH) {
+    throw new Error(`Skill name must be 1-${MAX_NAME_LENGTH} characters`);
   }
-  if (!data.description || typeof data.description !== 'string') {
-    throw new Error(`Skill at ${path} is missing required 'description' field in frontmatter`);
+  if (!data.description || typeof data.description !== 'string' || data.description.length > MAX_DESC_LENGTH) {
+    throw new Error(`Skill description must be 1-${MAX_DESC_LENGTH} characters`);
   }
 
   return {

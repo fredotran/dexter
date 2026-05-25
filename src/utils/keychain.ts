@@ -85,6 +85,10 @@ export async function saveToKeychain(
 ): Promise<boolean> {
   const platform = getPlatform();
   try {
+    // Validate service and account parameters to prevent command injection
+    if (!/^[a-zA-Z0-9._-]+$/.test(service) || !/^[a-zA-Z0-9._@+-]+$/.test(account)) {
+      throw new Error('Invalid service or account name');
+    }
     if (platform === 'darwin') {
       const { exitCode } = await runCommand('security', [
         'add-generic-password',

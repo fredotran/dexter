@@ -21,7 +21,7 @@ const SUSPICIOUS_PATTERNS = [
   /rm\s+-rf/i,
   /delete\s+all\s+(emails?|files?|data)/i,
   /<\/?system>/i,
-  /\]\s*\n\s*\[?(system|assistant|user)\]?:/i,
+  /\]\s{0,10}\n\s{0,10}\[?(system|assistant|user)\]?:/i,
 ];
 
 /**

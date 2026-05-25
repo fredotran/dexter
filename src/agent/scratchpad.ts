@@ -88,7 +88,7 @@ export class Scratchpad {
       mkdirSync(this.scratchpadDir, { recursive: true });
     }
 
-    const hash = createHash('md5').update(query).digest('hex').slice(0, 12);
+    const hash = createHash('sha256').update(query).digest('hex').slice(0, 12);
     const now = new Date();
     const timestamp = now.toISOString()
       .slice(0, 19)           // "2026-01-21T15:30:45"

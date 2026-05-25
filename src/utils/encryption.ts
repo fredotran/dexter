@@ -6,7 +6,7 @@
  * key based on the current working directory so the same project always
  * decrypts correctly without explicit configuration.
  */
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, pbkdf2Sync, randomBytes } from 'node:crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 
@@ -15,8 +15,8 @@ export function getEncryptionKey(): string {
   if (envKey && envKey.length >= 16) {
     return envKey;
   }
-  // Fallback: derive a deterministic key from the current working directory.
-  return createHash('sha256').update(process.cwd()).digest('hex');
+  // Fallback: derive a deterministic key from the current working directory using PBKDF2.
+  return pbkdf2Sync(process.cwd(), 'dexter-salt', 100000, 32, 'sha256').toString('hex');
 }
 
 function deriveKey(key: string): Buffer {

@@ -75,7 +75,7 @@ export function buildCacheKey(
     .join('&');
 
   const raw = `${endpoint}?${sortedParams}`;
-  const hash = createHash('md5').update(raw).digest('hex').slice(0, 12);
+  const hash = createHash('sha256').update(raw).digest('hex').slice(0, 12);
 
   // Turn "/prices/" → "prices"
   const cleanEndpoint = endpoint
